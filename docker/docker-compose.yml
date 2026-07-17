@@ -1,0 +1,72 @@
+version: "3.9"
+
+# Run everything with:  docker compose -f docker/docker-compose.yml --env-file ../.env up --build
+# (Ollama is expected to run on the host machine by default; see README.
+#  Uncomment the `ollama` service below to run it in Docker too.)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: travel-planner-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: travel_user
+      POSTGRES_PASSWORD: travel_pass
+      POSTGRES_DB: travel_planner
+    ports:
+      - "55432:5432"
+    volumes:
+      - travel_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travel_user -d travel_planner"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: travel-planner-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://travel_user:travel_pass@postgres:5432/travel_planner
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../checkpoints:/app/checkpoints
+
+  streamlit:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.streamlit
+    container_name: travel-planner-ui
+    restart: unless-stopped
+    depends_on:
+      - api
+    env_file:
+      - ../.env
+    environment:
+      API_BASE_URL: http://api:8000
+    ports:
+      - "8501:8501"
+
+  # Optional: run Ollama itself in Docker instead of on the host.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: travel-planner-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+
+volumes:
+  travel_pg_data:
+  # ollama_data:
