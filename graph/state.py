@@ -26,6 +26,14 @@ class TravelState(TypedDict, total=False):
 
     missing_fields: list
     last_asked_field: Optional[str]
+    # The field the user most recently *answered*. Lets us resolve vague
+    # corrections like "change that to Vijay" to the right slot.
+    last_answered_field: Optional[str]
+    # Set once a booking is confirmed. Trip details are kept in memory so the
+    # user can tweak-and-rebook, but a brand-new route starts a fresh trip.
+    booking_complete: Optional[bool]
+    # A short "Got it — updated X to Y" note surfaced after a correction.
+    correction_ack: Optional[str]
 
     search_results: Optional[dict]
     comparison: Optional[dict]

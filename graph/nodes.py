@@ -42,6 +42,9 @@ def _reset_trip_fields() -> dict:
         "recommendation": None,
         "approved": None,
         "last_asked_field": None,
+        "last_answered_field": None,
+        "booking_complete": None,
+        "correction_ack": None,
     }
 
 
@@ -60,6 +63,19 @@ def _parse_traveller_names(text: str):
     parts = re.split(r",|\band\b|&", text, flags=re.I)
     names = [p.strip().title() for p in parts if p.strip()]
     return names or None
+
+
+_NAME_CORRECTION_RE = re.compile(
+    r"\bnames?(?:'s)?\b\s*(?:is|are|to|as)?\s*([a-z]+(?:\s(?!not\b)[a-z]+){0,2})(?=\s+not\b|,|$)",
+    re.I,
+)
+
+
+def _detect_name_correction(text: str):
+    m = _NAME_CORRECTION_RE.search(text)
+    if not m:
+        return None
+    return _parse_traveller_names(m.group(1))
 
 
 def _sanitize_extracted(update: dict) -> dict:
@@ -103,8 +119,9 @@ def _coerce_answer(field: str, text: str):
         return float(m.group().replace(",", "")) if m else None
 
     if field in ("return_trip", "hotel_required", "flexible_dates"):
-        negative = any(w in lower for w in ["no", "not", "one way", "n/a", "none", "don't", "dont"])
-        positive = any(w in lower for w in ["yes", "yeah", "yep", "sure", "round trip", "need"])
+        norm = lower.replace("-", " ")
+        negative = any(w in norm for w in ["no", "not", "one way", "oneway", "n/a", "none", "don't", "dont"])
+        positive = any(w in norm for w in ["yes", "yeah", "yep", "sure", "round trip", "roundtrip", "return", "need"])
         if positive and not negative:
             return True
         if negative and not positive:
@@ -147,11 +164,23 @@ def _has_date_hint(text: str) -> bool:
 
 _FIELD_CORRECTION_KEYWORDS = {
     "num_travellers": ("traveller", "travellers", "traveler", "travelers", "people", "passenger", "passengers", "person", "pax"),
-    "budget": ("budget", "price", "rupees", "inr", "rs."),
+    "budget": ("budget", "price", "rupees", "inr", "rs.", "cost"),
     "transport_pref": ("transport", "mode of travel", "flight", "train", "bus"),
     "return_trip": ("round trip", "one way", "oneway", "return trip"),
+    "traveller_names": ("name", "names"),
+    "travel_date": ("date", "day"),
+    "source": ("origin", "leaving from", "departure city", "starting"),
+    "destination": ("destination", "going to"),
 }
-_CORRECTION_VERBS = ("change", "update", "set ", "make it", "correct", "fix")
+_CORRECTION_VERBS = ("change", "update", "set ", "make it", "make that", "correct", "fix", "rename")
+_CORRECTION_MARKER_WORDS = ("actually", "instead", "i mean", "meant", "sorry", "no,", "not ")
+
+# Pronouns the user might use to refer back to their previous answer, e.g.
+# "change that to Vijay" or "make it one-way".
+_PRONOUN_RE = re.compile(
+    r"\b(that|it|this|the last one|the previous one|the last answer|the previous answer)\b",
+    re.I,
+)
 
 
 def _keyword_present(lower_text: str, words: list, keyword: str) -> bool:
@@ -165,17 +194,89 @@ def _keyword_present(lower_text: str, words: list, keyword: str) -> bool:
     )
 
 
-def _detect_field_correction(text: str):
-    lower = text.lower()
-    if not any(v in lower for v in _CORRECTION_VERBS):
-        return None
-    words = re.findall(r"[a-z]+", lower)
-    for field, keywords in _FIELD_CORRECTION_KEYWORDS.items():
-        if any(_keyword_present(lower, words, kw) for kw in keywords):
-            value = _coerce_answer(field, text)
-            if value is not None:
-                return field, value
+def _looks_like_correction(lower_text: str) -> bool:
+    return any(v in lower_text for v in _CORRECTION_VERBS) or any(
+        m in lower_text for m in _CORRECTION_MARKER_WORDS
+    )
+
+
+def _extract_correction_value(text: str):
+    """Pull the new value out of a correction phrase.
+
+    "change that to Vijay"      -> "Vijay"
+    "change the budget to 3000" -> "3000"
+    "make it one-way"           -> "one-way"
+    "actually vijay"            -> "vijay"
+    """
+    m = re.search(r"\b(?:to|as|into|=|:)\s+(.+)$", text, re.I)
+    if m:
+        return m.group(1).strip(" .!?")
+    m = re.search(
+        r"\b(?:it|that|this|actually|instead)\s+(.+)$", text, re.I
+    )
+    if m:
+        return m.group(1).strip(" .!?")
     return None
+
+
+def _target_correction_field(lower_text: str, state) -> Optional[str]:
+    words = re.findall(r"[a-z]+", lower_text)
+    for field, keywords in _FIELD_CORRECTION_KEYWORDS.items():
+        if any(_keyword_present(lower_text, words, kw) for kw in keywords):
+            return field
+    # No explicit field mentioned — a pronoun ("that", "it") refers back to
+    # whatever the user answered most recently.
+    if _PRONOUN_RE.search(lower_text):
+        return state.get("last_answered_field")
+    return None
+
+
+def _resolve_correction(text: str, state):
+    """Deterministically resolve a correction to (field, value).
+
+    Handles both keyworded corrections ("change the budget to 3000") and vague
+    pronoun corrections ("change that to Vijay") by resolving the pronoun to the
+    field the user answered last.
+    """
+    lower = text.lower()
+    if not _looks_like_correction(lower):
+        return None
+    field = _target_correction_field(lower, state)
+    if not field:
+        return None
+    value_phrase = _extract_correction_value(text)
+    # Fall back to coercing the whole message (covers "make it one-way" where
+    # the keyword and value overlap).
+    for candidate in (value_phrase, text):
+        if candidate is None:
+            continue
+        value = _coerce_answer(field, candidate)
+        if value is not None:
+            return field, value
+    return None
+
+
+def _correction_ack(field: str, value) -> str:
+    labels = {
+        "traveller_names": "traveller name(s)",
+        "num_travellers": "number of travellers",
+        "budget": "budget",
+        "transport_pref": "transport preference",
+        "return_trip": "trip type",
+        "travel_date": "travel date",
+        "source": "origin",
+        "destination": "destination",
+    }
+    label = labels.get(field, field.replace("_", " "))
+    if isinstance(value, list):
+        disp = ", ".join(value)
+    elif field == "return_trip":
+        disp = "round trip" if value else "one-way"
+    elif field == "budget":
+        disp = f"INR {value:g}" if isinstance(value, (int, float)) else str(value)
+    else:
+        disp = str(value)
+    return f"Got it — updated {label} to {disp}."
 
 
 class IntentResult(BaseModel):
@@ -295,17 +396,37 @@ def extract_info_node(state: TravelState) -> dict:
     if dst:
         update["destination"] = dst
 
+    # --- Deterministic correction resolution (highest priority) -------------
+    # This runs before the pending-question answer so that a message like
+    # "change that to Vijay" (while we were asking for the budget) updates the
+    # traveller name instead of being misread as a budget answer.
+    ack_field = None
+    correction = _resolve_correction(text, state)
+    if correction:
+        field, value = correction
+        update[field] = value
+        ack_field = field
+
+    # "his name is Sharan not Ramu" style name corrections.
+    if "traveller_names" not in update:
+        corrected_names = _detect_name_correction(text)
+        if corrected_names:
+            update["traveller_names"] = corrected_names
+            ack_field = ack_field or "traveller_names"
+
+    # Deterministic transport pick-up, e.g. "help me find a train".
+    if "transport_pref" not in update:
+        tp = re.search(r"\b(flight|train|bus)\b", text, re.I)
+        action = re.search(r"\b(find|book|search|want|need|prefer|by|take)\b", text, re.I)
+        if tp and action:
+            update["transport_pref"] = tp.group(1).lower()
+
+    # Direct answer to the pending question — only if the message wasn't a
+    # correction that already answered (or deliberately dodged) it.
     if pending_field and pending_field not in update and _looks_like_direct_answer(text):
         coerced = _coerce_answer(pending_field, text)
         if coerced is not None:
             update[pending_field] = coerced
-
-    if not pending_field or pending_field not in update:
-        correction = _detect_field_correction(text)
-        if correction:
-            field, value = correction
-            if field not in update:
-                update[field] = value
 
     if update.get("num_travellers") is not None:
         try:
@@ -313,6 +434,31 @@ def extract_info_node(state: TravelState) -> dict:
                 update["traveller_names"] = None
         except (TypeError, ValueError):
             pass
+
+    # After a completed booking we keep trip details in memory so the user can
+    # tweak-and-rebook. But if they give a brand-new route, start a fresh trip.
+    if state.get("booking_complete"):
+        new_src = update.get("source")
+        new_dst = update.get("destination")
+        changed_route = (new_src and new_src != state.get("source")) or (
+            new_dst and new_dst != state.get("destination")
+        )
+        if changed_route:
+            for f in (
+                "travel_date", "return_date", "return_trip", "num_travellers",
+                "budget", "transport_pref", "hotel_required", "flexible_dates",
+                "seat_pref", "traveller_names",
+            ):
+                update.setdefault(f, None)
+        update["booking_complete"] = False
+
+    # Remember which field the user just answered, so the *next* turn can
+    # resolve a vague correction ("change that to ...") back to it.
+    if pending_field and update.get(pending_field) is not None:
+        update["last_answered_field"] = pending_field
+
+    if ack_field is not None:
+        update["correction_ack"] = _correction_ack(ack_field, update[ack_field])
 
     update["last_asked_field"] = None
     return update
@@ -338,7 +484,15 @@ def ask_questions_node(state: TravelState) -> dict:
     missing = state.get("missing_fields", [])
     field = missing[0]
     question = FIELD_QUESTIONS.get(field, f"Could you share your {field.replace('_', ' ')}?")
-    return {"messages": [AIMessage(content=question)], "last_asked_field": field}
+
+    ack = state.get("correction_ack")
+    message = f"{ack}\n\n{question}" if ack else question
+
+    return {
+        "messages": [AIMessage(content=message)],
+        "last_asked_field": field,
+        "correction_ack": None,
+    }
 
 
 def search_travel_options_node(state: TravelState) -> dict:
@@ -405,7 +559,11 @@ def recommend_node(state: TravelState) -> dict:
         "provider": chosen.get("provider", chosen.get("title", "N/A")),
     }
 
+    ack = state.get("correction_ack")
+    ack_prefix = f"{ack}\n\n" if ack else ""
+
     summary = (
+        f"{ack_prefix}"
         f"Here's my recommendation:\n\n"
         f"**{state.get('source')} -> {state.get('destination')}**\n"
         f"Mode: {chosen_mode.title()}\n"
@@ -419,6 +577,7 @@ def recommend_node(state: TravelState) -> dict:
     return {
         "recommendation": recommendation,
         "messages": [AIMessage(content=summary)],
+        "correction_ack": None,
     }
 
 
@@ -503,9 +662,20 @@ def show_confirmation_node(state: TravelState) -> dict:
         f"Status: {b['status']}\n\n"
         f"Confirmation email: {email_result.get('detail', 'not sent')}"
     )
-    update = {"messages": [AIMessage(content=message)]}
-    update.update(_reset_trip_fields())
-    return update
+    # Keep the trip details in memory so the user can tweak-and-rebook
+    # ("change the budget to 3000 and find a train"). Only the per-transaction
+    # fields are cleared here; extract_info_node starts a fresh trip if the user
+    # later gives a brand-new route.
+    return {
+        "messages": [AIMessage(content=message)],
+        "booking_complete": True,
+        "search_results": None,
+        "comparison": None,
+        "recommendation": None,
+        "approved": None,
+        "last_asked_field": None,
+        "correction_ack": None,
+    }
 
 
 def fetch_previous_bookings_node(state: TravelState) -> dict:
