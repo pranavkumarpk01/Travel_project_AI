@@ -169,6 +169,51 @@ st.markdown(
     .stButton > button[kind="primary"] {
         background: linear-gradient(120deg, #3cd296, #29b8a0);
     }
+
+    /* --- Kill leftover white/blue defaults on widgets --- */
+    /* Text / date / number inputs */
+    div[data-baseweb="input"],
+    div[data-baseweb="base-input"],
+    div[data-baseweb="select"] > div,
+    .stTextInput input,
+    .stNumberInput input,
+    .stDateInput input,
+    div[data-testid="stChatInput"],
+    div[data-testid="stChatInput"] textarea {
+        background: rgba(255,255,255,0.05) !important;
+        color: #eae7ff !important;
+        border-color: rgba(138, 92, 255, 0.35) !important;
+    }
+    .stTextInput input:focus,
+    .stNumberInput input:focus,
+    .stDateInput input:focus,
+    div[data-testid="stChatInput"] textarea:focus {
+        border-color: #8a5cff !important;
+        box-shadow: 0 0 0 1px #8a5cff !important;
+    }
+
+    /* Date picker popover calendar */
+    div[data-baseweb="calendar"],
+    div[data-baseweb="popover"] div[data-baseweb="calendar"] {
+        background: #1b2038 !important;
+        color: #eae7ff !important;
+    }
+    div[data-baseweb="calendar"] [aria-selected="true"] {
+        background: #8a5cff !important;
+    }
+
+    /* Dataframe / table (Previous Bookings) */
+    div[data-testid="stDataFrame"] {
+        background: rgba(255,255,255,0.03) !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-radius: 12px;
+    }
+
+    /* Radio selected accent -> purple instead of default blue/red */
+    section[data-testid="stSidebar"] .stRadio [aria-checked="true"] > div:first-child {
+        background-color: #8a5cff !important;
+        border-color: #8a5cff !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,

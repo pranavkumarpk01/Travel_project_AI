@@ -1,0 +1,9 @@
+[theme]
+# Dark theme matched to the app's purple/pink gradient so widgets stop
+# rendering with Streamlit's default white background and blue accent.
+base = "dark"
+primaryColor = "#8a5cff"
+backgroundColor = "#0f1220"
+secondaryBackgroundColor = "#1b2038"
+textColor = "#eae7ff"
+font = "sans serif"

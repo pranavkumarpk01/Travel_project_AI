@@ -1,0 +1,13 @@
+digraph "01_node" {
+	bgcolor=white nodesep=0.5 pad=0.4 rankdir=TB ranksep=0.6
+	node [color="#8a5cff" fillcolor="#efeaff" fontcolor="#20203a" fontname=Helvetica fontsize=16 margin="0.25,0.16" penwidth=2 shape=box style="rounded,filled"]
+	edge [arrowsize=0.9 color="#8892b0" fontcolor="#4a4a6a" fontname=Helvetica fontsize=13 penwidth=2]
+	fontname="Helvetica-Bold" fontsize=18 label="
+(1) NODE - a unit of work (a Python function)
+" labelloc=t
+	N [label="ask_questions
+
+(a node = one function
+that reads state and
+returns an update)"]
+}
