@@ -1,4 +1,25 @@
-# --- Python ---
+# ========================
+# SECURITY - SECRETS & CREDENTIALS
+# ========================
+.env
+.env.local
+.env.*.local
+.env.*.private
+.env.prod
+.env.staging
+*.pem
+*.key
+*.pfx
+.credentials/
+secrets/
+private/
+.aws/
+.gcloud/
+.ssh/
+
+# ========================
+# PYTHON ARTIFACTS
+# ========================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,50 +27,110 @@ __pycache__/
 .eggs/
 build/
 dist/
+*.egg
+*.whl
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
-# --- Virtual environments ---
+# ========================
+# VIRTUAL ENVIRONMENTS
+# ========================
 .venv/
 venv/
 env/
 ENV/
+env.bak/
+venv.bak/
 
-# --- Environment / secrets ---
-.env
-.env.*
-!.env.example
-
-# --- Databases ---
+# ========================
+# DATABASE & CHECKPOINTS
+# ========================
 database/*.db
 database/*.sqlite
 database/*.sqlite3
 *.db
 *.sqlite
 *.sqlite3
-
-# --- LangGraph checkpoints ---
 checkpoints/*.sqlite
 checkpoints/*.sqlite-*
 !checkpoints/.gitkeep
 
-# --- Logs ---
+# ========================
+# LOGGING & MONITORING
+# ========================
 *.log
+*.log.*
+logs/
+.logs/
 
-# --- OS / editor cruft ---
-.DS_Store
-Thumbs.db
+# ========================
+# IDE & EDITOR
+# ========================
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+*.iml
 
-# --- Streamlit ---
+# ========================
+# STREAMLIT
+# ========================
 .streamlit/secrets.toml
+.streamlit/cache/
 
-# --- Docker ---
+# ========================
+# DOCKER & COMPOSE
+# ========================
 docker/.env
+.dockerignore
 
-# --- Test/coverage artifacts ---
+# ========================
+# TESTING & COVERAGE
+# ========================
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.hypothesis/
 
-__pycache__
+# ========================
+# NODE & JS (if applicable)
+# ========================
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm/
+
+# ========================
+# RUNTIME ARTIFACTS
+# ========================
+*.pid
+*.seed
+*.pid.lock
+dist/
+build/
+
+# ========================
+# API KEYS & TOKENS (any format)
+# ========================
+**/api_keys.txt
+**/tokens.json
+**/credentials.json
+**/secrets.yaml
+**/secrets.yml
+
+# ========================
+# USER-SPECIFIC FILES
+# ========================
+.env.user
+.env.personal
+.env.development.local
